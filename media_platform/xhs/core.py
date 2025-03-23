@@ -480,6 +480,10 @@ class XiaoHongShuCrawler(AbstractCrawler):
 
         if not image_list:
             return
+        
+        # 用于收集所有图片的本地路径
+        local_image_paths = []
+        
         picNum = 0
         for pic in image_list:
             url = pic.get("url")
@@ -490,7 +494,27 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 continue
             extension_file_name = f"{picNum}.jpg"
             picNum += 1
-            await xhs_store.update_xhs_note_image(note_id, content, extension_file_name)
+            
+            # 保存图片并获取本地路径
+            image_path = await xhs_store.update_xhs_note_image(note_id, content, extension_file_name)
+            local_image_paths.append(image_path)
+        
+        # 如果成功下载了图片，更新数据库中的本地图片路径
+        if local_image_paths:
+            # 将本地图片路径列表转换为逗号分隔的字符串
+            local_image_paths_str = ','.join(local_image_paths)
+            
+            # 使用xhs_store模块更新笔记的本地图片路径
+            # 创建一个包含笔记ID和本地图片路径的字典
+            update_data = {
+                "note_id": note_id,
+                "local_image_paths": local_image_paths_str
+            }
+            
+            # 调用xhs_store模块中的update_xhs_note_local_image_paths函数更新数据库
+            await xhs_store.update_xhs_note_local_image_paths(update_data)
+            
+            utils.logger.info(f"[XiaoHongShuCrawler.get_note_images] Updated local image paths for note {note_id}")
 
     async def get_notice_video(self, note_item: Dict):
         """

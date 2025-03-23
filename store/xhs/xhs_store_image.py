@@ -13,6 +13,7 @@
 # @Author  : helloteemo
 # @Time    : 2024/7/11 22:35
 # @Desc    : 小红书图片保存
+import os
 import pathlib
 from typing import Dict
 
@@ -49,7 +50,7 @@ class XiaoHongShuImage(AbstractStoreImage):
         """
         return f"{self.image_store_path}/{notice_id}/{extension_file_name}"
 
-    async def save_image(self, notice_id: str, pic_content: str, extension_file_name="jpg"):
+    async def save_image(self, notice_id: str, pic_content: str, extension_file_name="jpg") -> str:
         """
         save image to local
         Args:
@@ -57,10 +58,13 @@ class XiaoHongShuImage(AbstractStoreImage):
             pic_content: image content
 
         Returns:
-
+            str: 保存的图片的本地绝对路径
         """
         pathlib.Path(self.image_store_path + "/" + notice_id).mkdir(parents=True, exist_ok=True)
         save_file_name = self.make_save_file_name(notice_id, extension_file_name)
         async with aiofiles.open(save_file_name, 'wb') as f:
             await f.write(pic_content)
             utils.logger.info(f"[XiaoHongShuImageStoreImplement.save_image] save image {save_file_name} success ...")
+        
+        # 返回图片的绝对路径
+        return os.path.abspath(save_file_name)

@@ -213,15 +213,48 @@ async def save_creator(user_id: str, creator: Dict):
 
 async def update_xhs_note_image(note_id, pic_content, extension_file_name):
     """
-    更新小红书笔
+    更新小红书笔记图片
     Args:
-        note_id:
-        pic_content:
-        extension_file_name:
+        note_id: 笔记ID
+        pic_content: 图片内容
+        extension_file_name: 扩展文件名
 
     Returns:
-
+        str: 保存的图片的本地绝对路径
     """
 
-    await XiaoHongShuImage().store_image(
-        {"notice_id": note_id, "pic_content": pic_content, "extension_file_name": extension_file_name})
+    # 调用XiaoHongShuImage的store_image方法保存图片
+    image_instance = XiaoHongShuImage()
+    image_path = await image_instance.save_image(note_id, pic_content, extension_file_name)
+    
+    return image_path
+
+
+async def update_xhs_note_local_image_paths(note_data: Dict):
+    """
+    更新小红书笔记的本地图片路径
+    Args:
+        note_data: 包含笔记ID和本地图片路径的字典
+            {
+                "note_id": 笔记ID,
+                "local_image_paths": 逗号分隔的本地图片路径字符串
+            }
+    Returns:
+        None
+    """
+    note_id = note_data.get("note_id")
+    local_image_paths = note_data.get("local_image_paths")
+    
+    if not note_id or not local_image_paths:
+        utils.logger.warning(f"[store.xhs.update_xhs_note_local_image_paths] Invalid note data: {note_data}")
+        return
+    
+    # 创建一个包含笔记ID和本地图片路径的字典
+    update_data = {
+        "note_id": note_id,
+        "local_image_paths": local_image_paths,
+        "last_modify_ts": utils.get_current_timestamp()
+    }
+    
+    utils.logger.info(f"[store.xhs.update_xhs_note_local_image_paths] Updating local image paths for note {note_id}")
+    await XhsStoreFactory.create_store().update_note_local_image_paths(update_data)

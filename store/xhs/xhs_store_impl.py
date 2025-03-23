@@ -170,6 +170,28 @@ class XhsDbStoreImplement(AbstractStore):
             await add_new_creator(creator)
         else:
             await update_creator_by_user_id(user_id, creator)
+            
+    async def update_note_local_image_paths(self, update_data: Dict):
+        """
+        更新笔记的本地图片路径
+        Args:
+            update_data: 包含笔记ID和本地图片路径的字典
+                {
+                    "note_id": 笔记ID,
+                    "local_image_paths": 逗号分隔的本地图片路径字符串,
+                    "last_modify_ts": 最后修改时间戳
+                }
+        Returns:
+            int: 受影响的行数
+        """
+        from .xhs_store_sql import update_note_local_image_paths
+        note_id = update_data.get("note_id")
+        if not note_id:
+            utils.logger.warning(f"[XhsDbStoreImplement.update_note_local_image_paths] Invalid note data: {update_data}")
+            return 0
+        
+        effect_row = await update_note_local_image_paths(note_id, update_data)
+        return effect_row
 
 
 class XhsJsonStoreImplement(AbstractStore):

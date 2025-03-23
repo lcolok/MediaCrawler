@@ -157,3 +157,18 @@ async def update_creator_by_user_id(user_id: str, creator_item: Dict) -> int:
     async_db_conn: AsyncMysqlDB = media_crawler_db_var.get()
     effect_row: int = await async_db_conn.update_table("xhs_creator", creator_item, "user_id", user_id)
     return effect_row
+
+
+async def update_note_local_image_paths(note_id: str, update_data: Dict) -> int:
+    """
+    更新笔记的本地图片路径
+    Args:
+        note_id: 笔记ID
+        update_data: 更新数据，包含local_image_paths字段
+
+    Returns:
+        int: 受影响的行数
+    """
+    async_db_conn: AsyncMysqlDB = media_crawler_db_var.get()
+    effect_row: int = await async_db_conn.update_table("xhs_note", update_data, "note_id", note_id)
+    return effect_row
