@@ -87,7 +87,13 @@ async def update_xhs_note(note_item: Dict):
     video_url = ','.join(get_video_url_arr(note_item))
 
     # 获取批次ID，如果配置中没有设置，则使用当前时间戳作为批次ID
-    batch_id = config.BATCH_ID if config.BATCH_ID else f"batch_{utils.get_current_timestamp()}"
+    try:
+        batch_id = getattr(config, 'BATCH_ID', None)
+        if not batch_id:  # 如果为 None 或空字符串
+            batch_id = f"batch_{utils.get_current_timestamp()}"
+    except Exception as e:
+        utils.logger.warning(f"[获取批次ID] 发生异常: {e}")
+        batch_id = f"batch_{utils.get_current_timestamp()}"
 
     local_db_item = {
         "note_id": note_item.get("note_id"), # 帖子id
