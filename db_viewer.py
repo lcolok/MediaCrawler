@@ -156,7 +156,8 @@ async def show_xhs_notes(conn, limit=10):
                 share_count,
                 nickname,
                 time,
-                image_list
+                image_list,
+                local_image_paths
             FROM xhs_note 
             ORDER BY time DESC
             LIMIT {limit}
@@ -180,6 +181,7 @@ async def show_xhs_notes(conn, limit=10):
         table.add_column("作者", style="blue")
         table.add_column("创建时间", style="magenta")
         table.add_column("图片数量", justify="right")
+        table.add_column("已下载", justify="right")
         
         for note in notes:
             # 处理内容摘要（截取前30个字符）
@@ -192,11 +194,17 @@ async def show_xhs_notes(conn, limit=10):
             
             # 处理图片列表
             image_count = 0
+            downloaded_count = 0
             if note['image_list']:
                 try:
                     # 图片URL是以逗号分隔的字符串
                     image_urls = note['image_list'].split(',')
                     image_count = len(image_urls)
+                    
+                    # 处理本地图片路径
+                    if note['local_image_paths']:
+                        local_paths = note['local_image_paths'].split(',')
+                        downloaded_count = len(local_paths)
                 except:
                     pass
             
@@ -210,7 +218,8 @@ async def show_xhs_notes(conn, limit=10):
                 str(note['share_count']),
                 note['nickname'] or "未知",
                 create_time,
-                str(image_count)
+                str(image_count),
+                f"{downloaded_count}/{image_count}" if image_count > 0 else "0/0"
             )
         
         console.print(table)
@@ -355,16 +364,137 @@ async def show_note_images(conn, note_id):
             table.add_column("序号", style="dim", justify="right")
             table.add_column("图片URL", style="green", width=60)
             table.add_column("本地路径", style="cyan", width=40)
+            table.add_column("状态", style="magenta", width=10)
             
             for i, img_url in enumerate(image_urls, 1):
                 # 获取对应的本地路径（如果存在）
-                local_path = local_paths[i-1] if i <= len(local_paths) else "未下载"
-                table.add_row(str(i), img_url.strip(), local_path)
+                local_path = "未下载"
+                status = "❌ 未下载"
+                
+                if i <= len(local_paths) and local_paths[i-1].strip():
+                    local_path = local_paths[i-1].strip()
+                    status = "✅ 已下载"
+                
+                table.add_row(str(i), img_url.strip(), local_path, status)
+            
+            # 显示下载统计
+            downloaded_count = sum(1 for path in local_paths if path.strip())
+            console.print(f"\n总图片数: [bold]{len(image_urls)}[/] | 已下载: [bold green]{downloaded_count}[/] | 未下载: [bold red]{len(image_urls) - downloaded_count}[/]")
             
             console.print(table)
             
         except Exception as e:
             console.print(f"[red]解析图片列表时出错: {str(e)}[/]")
+
+async def show_download_status(conn, show_downloaded=True, show_paths=False):
+    """显示已下载或未下载图片的笔记"""
+    status_text = "已下载" if show_downloaded else "未下载"
+    path_text = "（包含本地路径）" if show_paths else ""
+    console.print(Panel.fit(
+        f"[bold]小红书笔记 - {status_text}图片状态{path_text}[/]",
+        border_style="green" if show_downloaded else "red"
+    ))
+    
+    async with conn.cursor(aiomysql.DictCursor) as cursor:
+        # 构建查询条件
+        query_condition = "local_image_paths IS NOT NULL AND local_image_paths != ''" if show_downloaded else "local_image_paths IS NULL OR local_image_paths = ''"
+        
+        # 获取笔记数据
+        await cursor.execute(f"""
+            SELECT 
+                note_id, 
+                title, 
+                image_list,
+                local_image_paths,
+                nickname,
+                time
+            FROM xhs_note 
+            WHERE {query_condition}
+            ORDER BY time DESC
+        """)
+        
+        notes = await cursor.fetchall()
+        
+        if not notes:
+            console.print(f"[yellow]暂无{status_text}图片的笔记[/]")
+            return
+        
+        # 创建表格
+        table = Table(show_header=True, header_style="bold green" if show_downloaded else "bold red")
+        table.add_column("笔记ID", style="dim", width=12)
+        table.add_column("标题", style="green")
+        table.add_column("作者", style="blue")
+        table.add_column("创建时间", style="magenta")
+        table.add_column("图片总数", justify="right")
+        table.add_column("已下载数", justify="right")
+        table.add_column("下载比例", justify="right")
+        
+        for note in notes:
+            # 处理图片列表
+            image_count = 0
+            downloaded_count = 0
+            
+            if note['image_list']:
+                try:
+                    # 图片URL是以逗号分隔的字符串
+                    image_urls = note['image_list'].split(',')
+                    image_count = len(image_urls)
+                    
+                    # 处理本地图片路径
+                    if note['local_image_paths']:
+                        local_paths = note['local_image_paths'].split(',')
+                        downloaded_count = sum(1 for path in local_paths if path.strip())
+                except Exception as e:
+                    console.print(f"[red]解析图片列表时出错: {str(e)}[/]")
+            
+            # 格式化创建时间
+            create_time = datetime.fromtimestamp(note['time']/1000).strftime("%Y-%m-%d %H:%M") if note['time'] else "未知"
+            
+            # 计算下载比例
+            download_ratio = f"{downloaded_count}/{image_count}"
+            percentage = f"{(downloaded_count/image_count)*100:.1f}%" if image_count > 0 else "0%"
+            
+            table.add_row(
+                note['note_id'],
+                note['title'] or "无标题",
+                note['nickname'] or "未知",
+                create_time,
+                str(image_count),
+                str(downloaded_count),
+                f"{download_ratio} ({percentage})"
+            )
+        
+        console.print(table)
+        console.print(f"\n总计: [bold]{len(notes)}[/] 条{status_text}图片的笔记")
+        
+        # 如果需要显示路径信息，并且是已下载的笔记
+        if show_paths and show_downloaded:
+            console.print("\n")
+            console.print(Panel.fit(
+                "[bold]本地图片路径详情[/]",
+                border_style="cyan"
+            ))
+            
+            for note in notes:
+                console.print(f"\n[bold cyan]笔记ID:[/] [green]{note['note_id']}[/] - [bold]标题:[/] {note['title'] or '无标题'}")
+                
+                if note['image_list'] and note['local_image_paths']:
+                    try:
+                        image_urls = note['image_list'].split(',')
+                        local_paths = note['local_image_paths'].split(',')
+                        
+                        path_table = Table(show_header=True, header_style="bold blue")
+                        path_table.add_column("序号", style="dim", justify="right")
+                        path_table.add_column("本地路径", style="green")
+                        
+                        for i, path in enumerate(local_paths, 1):
+                            if path.strip():
+                                path_table.add_row(str(i), path.strip())
+                        
+                        console.print(path_table)
+                    except Exception as e:
+                        console.print(f"[red]解析路径时出错: {str(e)}[/]")
+
 
 async def main():
     """主函数"""
@@ -373,12 +503,22 @@ async def main():
     
     # 检查命令行参数
     show_images_only = False
+    show_downloaded = False
+    show_not_downloaded = False
+    show_paths = False
     note_id = None
     
     if len(sys.argv) > 1:
         if sys.argv[1] == '--images' and len(sys.argv) > 2:
             show_images_only = True
             note_id = sys.argv[2]
+        elif sys.argv[1] == '--downloaded':
+            show_downloaded = True
+            # 检查是否还有--paths参数
+            if len(sys.argv) > 2 and sys.argv[2] == '--paths':
+                show_paths = True
+        elif sys.argv[1] == '--not-downloaded':
+            show_not_downloaded = True
     
     # 连接数据库
     conn = await connect_to_db()
@@ -389,6 +529,12 @@ async def main():
         if show_images_only:
             # 只显示指定笔记的图片URL列表
             await show_note_images(conn, note_id)
+        elif show_downloaded:
+            # 显示已下载图片的笔记
+            await show_download_status(conn, show_downloaded=True, show_paths=show_paths)
+        elif show_not_downloaded:
+            # 显示未下载图片的笔记
+            await show_download_status(conn, show_downloaded=False)
         else:
             # 显示完整的数据库信息
             # 显示数据库基本信息
