@@ -136,16 +136,28 @@ async def show_table_info(conn):
     console.print(table)
 
 
-async def show_xhs_notes(conn, limit=10):
+async def show_xhs_notes(conn, limit=10, batch_id=None):
     """显示小红书笔记数据"""
+    title_text = f"小红书笔记数据 (前{limit}条)"
+    if batch_id:
+        title_text = f"小红书笔记数据 (批次ID: {batch_id})"
+    
     console.print(Panel.fit(
-        f"[bold]小红书笔记数据 (前{limit}条)[/]",
+        f"[bold]{title_text}[/]",
         border_style="red"
     ))
     
     async with conn.cursor(aiomysql.DictCursor) as cursor:
+        # 构建查询条件
+        query_condition = ""
+        query_params = []
+        
+        if batch_id:
+            query_condition = "WHERE batch_id = %s"
+            query_params = [batch_id]
+        
         # 获取小红书笔记数据
-        await cursor.execute(f"""
+        query = f"""
             SELECT 
                 note_id, 
                 title, 
@@ -157,11 +169,15 @@ async def show_xhs_notes(conn, limit=10):
                 nickname,
                 time,
                 image_list,
-                local_image_paths
+                local_image_paths,
+                batch_id
             FROM xhs_note 
+            {query_condition}
             ORDER BY time DESC
             LIMIT {limit}
-        """)
+        """
+        
+        await cursor.execute(query, query_params)
         
         notes = await cursor.fetchall()
         
@@ -182,6 +198,7 @@ async def show_xhs_notes(conn, limit=10):
         table.add_column("创建时间", style="magenta")
         table.add_column("图片数量", justify="right")
         table.add_column("已下载", justify="right")
+        table.add_column("批次ID", style="cyan")
         
         for note in notes:
             # 处理内容摘要（截取前30个字符）
@@ -208,6 +225,11 @@ async def show_xhs_notes(conn, limit=10):
                 except:
                     pass
             
+            # 获取批次ID
+            batch_id_display = note.get('batch_id', '未知')
+            if batch_id_display and batch_id_display.startswith('batch_'):
+                batch_id_display = batch_id_display[6:]  # 移除 'batch_' 前缀以简化显示
+            
             table.add_row(
                 note['note_id'],
                 note['title'] or "无标题",
@@ -219,7 +241,77 @@ async def show_xhs_notes(conn, limit=10):
                 note['nickname'] or "未知",
                 create_time,
                 str(image_count),
-                f"{downloaded_count}/{image_count}" if image_count > 0 else "0/0"
+                f"{downloaded_count}/{image_count}" if image_count > 0 else "0/0",
+                batch_id_display or "未知"
+            )
+        
+        console.print(table)
+
+
+async def show_batch_ids(conn):
+    """显示所有批次ID及其包含的笔记数量"""
+    console.print(Panel.fit(
+        "[bold]批次ID统计[/]",
+        border_style="cyan"
+    ))
+    
+    async with conn.cursor(aiomysql.DictCursor) as cursor:
+        # 获取所有批次ID及其笔记数量
+        await cursor.execute("""
+            SELECT 
+                batch_id, 
+                COUNT(*) as note_count,
+                MIN(time) as first_note_time,
+                MAX(time) as last_note_time
+            FROM xhs_note 
+            WHERE batch_id IS NOT NULL AND batch_id != ''
+            GROUP BY batch_id
+            ORDER BY last_note_time DESC
+        """)
+        
+        batches = await cursor.fetchall()
+        
+        if not batches:
+            console.print("[yellow]暂无批次ID数据[/]")
+            return
+        
+        # 创建表格
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("批次ID", style="green")
+        table.add_column("笔记数量", justify="right", style="blue")
+        table.add_column("开始时间", style="magenta")
+        table.add_column("结束时间", style="magenta")
+        table.add_column("持续时间", style="yellow")
+        
+        for batch in batches:
+            batch_id = batch['batch_id']
+            # 如果批次ID以 'batch_' 开头，则移除前缀以简化显示
+            if batch_id and batch_id.startswith('batch_'):
+                display_id = batch_id[6:]
+            else:
+                display_id = batch_id or "未知"
+            
+            # 格式化时间
+            first_time = datetime.fromtimestamp(batch['first_note_time']/1000).strftime("%Y-%m-%d %H:%M") if batch['first_note_time'] else "未知"
+            last_time = datetime.fromtimestamp(batch['last_note_time']/1000).strftime("%Y-%m-%d %H:%M") if batch['last_note_time'] else "未知"
+            
+            # 计算持续时间
+            duration = "未知"
+            if batch['first_note_time'] and batch['last_note_time']:
+                duration_seconds = (batch['last_note_time'] - batch['first_note_time']) / 1000
+                if duration_seconds < 60:
+                    duration = f"{int(duration_seconds)}秒"
+                elif duration_seconds < 3600:
+                    duration = f"{int(duration_seconds/60)}分钟"
+                else:
+                    duration = f"{duration_seconds/3600:.1f}小时"
+            
+            table.add_row(
+                display_id,
+                str(batch['note_count']),
+                first_time,
+                last_time,
+                duration
             )
         
         console.print(table)
@@ -506,6 +598,8 @@ async def main():
     show_downloaded = False
     show_not_downloaded = False
     show_paths = False
+    show_batch_info = False
+    batch_id = None
     note_id = None
     
     if len(sys.argv) > 1:
@@ -519,6 +613,10 @@ async def main():
                 show_paths = True
         elif sys.argv[1] == '--not-downloaded':
             show_not_downloaded = True
+        elif sys.argv[1] == '--batches':
+            show_batch_info = True
+        elif sys.argv[1] == '--batch' and len(sys.argv) > 2:
+            batch_id = sys.argv[2]
     
     # 连接数据库
     conn = await connect_to_db()
@@ -535,6 +633,12 @@ async def main():
         elif show_not_downloaded:
             # 显示未下载图片的笔记
             await show_download_status(conn, show_downloaded=False)
+        elif show_batch_info:
+            # 显示批次ID信息
+            await show_batch_ids(conn)
+        elif batch_id:
+            # 显示指定批次ID的笔记
+            await show_xhs_notes(conn, limit=100, batch_id=batch_id)
         else:
             # 显示完整的数据库信息
             # 显示数据库基本信息

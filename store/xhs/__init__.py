@@ -86,6 +86,9 @@ async def update_xhs_note(note_item: Dict):
 
     video_url = ','.join(get_video_url_arr(note_item))
 
+    # 获取批次ID，如果配置中没有设置，则使用当前时间戳作为批次ID
+    batch_id = config.BATCH_ID if config.BATCH_ID else f"batch_{utils.get_current_timestamp()}"
+
     local_db_item = {
         "note_id": note_item.get("note_id"), # 帖子id
         "type": note_item.get("type"), # 帖子类型
@@ -108,6 +111,7 @@ async def update_xhs_note(note_item: Dict):
         "note_url": f"https://www.xiaohongshu.com/explore/{note_id}?xsec_token={note_item.get('xsec_token')}&xsec_source=pc_search", # 帖子url
         "source_keyword": source_keyword_var.get(), # 搜索关键词
         "xsec_token": note_item.get("xsec_token"), # xsec_token
+        "batch_id": batch_id, # 批次ID，用于标识同一轮爬取的笔记
     }
     utils.logger.info(f"[store.xhs.update_xhs_note] xhs note: {local_db_item}")
     await XhsStoreFactory.create_store().store_content(local_db_item)

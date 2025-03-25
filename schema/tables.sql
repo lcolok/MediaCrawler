@@ -538,3 +538,8 @@ alter table douyin_aweme_comment add column `like_count` varchar(255) NOT NULL D
 
 alter table xhs_note add column xsec_token varchar(50) default null comment '签名算法';
 alter table douyin_aweme_comment add column `pictures` varchar(500) NOT NULL DEFAULT '' COMMENT '评论图片列表';
+
+-- ----------------------------
+-- alter table xhs_note to support batch_id
+-- ----------------------------
+alter table xhs_note add column batch_id varchar(64) default null comment '批次ID，用于标识同一轮爬取的笔记';
